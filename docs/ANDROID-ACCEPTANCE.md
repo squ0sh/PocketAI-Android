@@ -78,6 +78,22 @@ The signing key lives in `twa/keystore.jks` and its password in `twa/keystore.pr
 
 ## Deploying hosting
 
+Pushing to `main` deploys the Android site automatically:
+
+```sh
+git push origin main
+```
+
+The workflow (`.github/workflows/firebase-hosting-merge.yml`) builds the app, runs `npm run check` and then publishes **hosting only**:
+
+```sh
+firebase deploy --only hosting:android --project pocket-ai-sovereign-aether
+```
+
+It authenticates with the service account `github-action-pocketai-android@pocket-ai-sovereign-aether.iam.gserviceaccount.com` (key in the repository secret `FIREBASE_SERVICE_ACCOUNT_POCKET_AI_SOVEREIGN_AETHER`, roles: `firebasehosting.admin`, `serviceusage.serviceUsageConsumer`). That account cannot deploy functions and cannot reach the `pocket-ai-iphone` site.
+
+To deploy by hand instead:
+
 ```sh
 npm run build
 npx firebase-tools deploy --only hosting:android --project pocket-ai-sovereign-aether

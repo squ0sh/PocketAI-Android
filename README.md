@@ -19,9 +19,10 @@ For everyday use, read the [Pocket AI user manual](USER-MANUAL-README.md). The s
 
 The app is distributed as a sideloaded APK (no Play Store, no Play App Signing):
 
-1. Copy `twa/app-release-signed.apk` to the phone.
-2. Allow **Install unknown apps** for the app doing the installing (your file manager, or Chrome).
-3. Open the APK and confirm the install.
+1. Get `PocketAI-Android-v0.9.0.apk` — it is attached to the [v0.9.0 release](https://github.com/squ0sh/PocketAI-Android/releases/tag/v0.9.0), and the build in this repository is at `twa/app-release-signed.apk`.
+2. Copy it to the phone.
+3. Allow **Install unknown apps** for the app doing the installing (your file manager, or Chrome).
+4. Open the APK and confirm the install.
 
 The APK is a Trusted Web Activity: the interface you see is the app served from `pocket-ai-android.web.app`, verified through [Digital Asset Links](https://developer.android.com/training/app-links). The signature must match the fingerprint published at `https://pocket-ai-android.web.app/.well-known/assetlinks.json`, otherwise the phone opens the site in a normal browser tab instead of as an installed app. The app is still fully usable that way.
 
@@ -160,6 +161,24 @@ npm run twa:build    # build + sign the APK -> twa/app-release-signed.apk
 ```
 
 Changing the signing key means changing `public/.well-known/assetlinks.json` too, then redeploying hosting, otherwise the phone will open the site in a browser tab instead of the installed app.
+
+### Deployment
+
+- Repository: <https://github.com/squ0sh/PocketAI-Android> (private)
+- Release with the sideloadable APK: <https://github.com/squ0sh/PocketAI-Android/releases/tag/v0.9.0>
+- Hosting site: `pocket-ai-android` in the Firebase project `pocket-ai-sovereign-aether`
+
+A push to `main` runs `.github/workflows/firebase-hosting-merge.yml`, which builds, runs the check suite and deploys **hosting only**:
+
+```sh
+firebase deploy --only hosting:android --project pocket-ai-sovereign-aether
+```
+
+The workflow authenticates with the service account `github-action-pocketai-android@pocket-ai-sovereign-aether.iam.gserviceaccount.com`, whose key lives in the repository secret `FIREBASE_SERVICE_ACCOUNT_POCKET_AI_SOVEREIGN_AETHER`. It holds `roles/firebasehosting.admin` and `roles/serviceusage.serviceUsageConsumer` — enough to publish the Android site, and nothing more. It cannot deploy functions, and it cannot reach the `pocket-ai-iphone` site.
+
+Pull requests are verified only (`npm run check`); they are not published anywhere.
+
+To rotate the service account key, create a new key for that account, update the secret, and delete the old key in the Google Cloud console. To deploy by hand, log in with the Firebase CLI and run the same `firebase deploy --only hosting:android` command.
 
 Tokenizer source and license information is recorded in [THIRD_PARTY.md](THIRD_PARTY.md).
 
