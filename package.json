@@ -1,0 +1,36 @@
+{
+  "name": "pocket-ai",
+  "private": true,
+  "version": "0.8.2",
+  "type": "module",
+  "main": "functions/index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "check": "node tools/check.mjs",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@mlc-ai/web-llm": "0.2.84",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "bitgpu": "0.19.1",
+    "firebase": "^12.18.0",
+    "firebase-functions": "^4.9.0",
+    "firebase-tools": "^15.28.2"
+  },
+  "devDependencies": {
+    "vite": "^7.0.0",
+    "marked": "13.0.3"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "fsevents@2.3.3": true,
+    "re2@1.26.1": true,
+    "@firebase/util@1.15.3": true,
+    "protobufjs@6.11.6": true,
+    "protobufjs@6.11.3": true
+  }
+}

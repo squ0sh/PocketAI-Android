@@ -1,0 +1,30 @@
+{
+  "functions": [
+    {
+      "source": ".",
+      "codebase": "online-assist"
+    }
+  ],
+  "hosting": {
+    "public": "dist",
+    "site": "pocket-ai-iphone",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/online-assist",
+        "function": {
+          "functionId": "onlineAssist",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
