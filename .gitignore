@@ -73,3 +73,21 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Android signing material — never commit. Back these up somewhere safe:
+# without the keystore (and its password) the app cannot be updated in place.
+twa/keystore.jks
+twa/keystore.properties
+twa/*.jks
+*.keystore
+
+# Android build output
+twa/app/build/
+twa/build/
+twa/.gradle/
+twa/local.properties
+twa/*.apk
+twa/*.aab
+twa/*.idsig
+/PocketAI-Android-*.apk
+

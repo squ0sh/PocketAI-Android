@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.pocketai.android",
+      "sha256_cert_fingerprints": [
+        "75:ED:19:34:61:A3:35:6B:0C:FC:59:87:F7:F7:8D:10:80:6F:DC:F9:22:E2:26:E0:5D:71:7F:16:0A:49:75:C0"
+      ]
+    }
+  }
+]

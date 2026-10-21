@@ -1,7 +1,7 @@
 {
   "name": "pocket-ai",
   "private": true,
-  "version": "0.8.2",
+  "version": "0.9.0",
   "type": "module",
   "main": "functions/index.js",
   "engines": {
@@ -11,7 +11,10 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "check": "node tools/check.mjs",
-    "preview": "vite preview --host 0.0.0.0"
+    "check:live": "node tools/live-check.mjs",
+    "preview": "vite preview --host 0.0.0.0",
+    "twa:init": "node tools/twa-init.mjs",
+    "twa:build": "node tools/twa-build.mjs"
   },
   "dependencies": {
     "@mlc-ai/web-llm": "0.2.84",
@@ -22,8 +25,10 @@
     "firebase-tools": "^15.28.2"
   },
   "devDependencies": {
-    "vite": "^7.0.0",
-    "marked": "13.0.3"
+    "@bubblewrap/cli": "^1.27.0",
+    "@bubblewrap/core": "^1.27.0",
+    "marked": "13.0.3",
+    "vite": "^7.0.0"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

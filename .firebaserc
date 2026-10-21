@@ -1,5 +1,14 @@
 {
   "projects": {
     "default": "pocket-ai-sovereign-aether"
+  },
+  "targets": {
+    "pocket-ai-sovereign-aether": {
+      "hosting": {
+        "android": [
+          "pocket-ai-android"
+        ]
+      }
+    }
   }
 }

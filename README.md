@@ -1,12 +1,31 @@
-# Pocket AI
+# Pocket AI — Android
 
-> Private on-device chat for iPhone Safari · v0.8.2
+> Private on-device chat for Android · v0.9.0
 
-Pocket AI runs supported local models using WebGPU. Its Bonsai GGUF file path works offline after the app has finished installing its support files. Online Assist is a separate, explicit remote option.
+Pocket AI runs supported local models using WebGPU. Its Bonsai GGUF file path works offline after the app has finished installing its support files. Online Assist is a separate, explicit remote option, and it is also the automatic fallback on phones that have no usable WebGPU device.
+
+This repository is the Android port of the iPhone project. It ships the same web app, plus a Trusted Web Activity (TWA) wrapper that installs on a phone as an ordinary Android app. The iPhone project is a separate repository and is not affected by anything here.
+
+## Live site
+
+- App: <https://pocket-ai-android.web.app>
+- Android package: `app.pocketai.android`
 
 ## User guide
 
 For everyday use, read the [Pocket AI user manual](USER-MANUAL-README.md). The same guide is available through **Help & user guide** in the app and works offline after setup. This README covers development, runtime details and deployment.
+
+## Install on a phone
+
+The app is distributed as a sideloaded APK (no Play Store, no Play App Signing):
+
+1. Copy `twa/app-release-signed.apk` to the phone.
+2. Allow **Install unknown apps** for the app doing the installing (your file manager, or Chrome).
+3. Open the APK and confirm the install.
+
+The APK is a Trusted Web Activity: the interface you see is the app served from `pocket-ai-android.web.app`, verified through [Digital Asset Links](https://developer.android.com/training/app-links). The signature must match the fingerprint published at `https://pocket-ai-android.web.app/.well-known/assetlinks.json`, otherwise the phone opens the site in a normal browser tab instead of as an installed app. The app is still fully usable that way.
+
+Rebuilding the APK needs a JDK 17, the Android SDK and the signing keystore. See [docs/ANDROID-ACCEPTANCE.md](docs/ANDROID-ACCEPTANCE.md) for the full procedure.
 
 ## Start here
 
@@ -26,13 +45,13 @@ No model downloads or starts automatically. New users start with Bonsai 1.7B sel
 
 ## Take a GGUF offline
 
-1. Open the production app online. Wait for **App ready for offline GGUF**. On iPhone, add it to the Home Screen through Safari's Share menu.
-2. Use **Save to Files** in the model menu. Ensure the GGUF is downloaded onto the device, not only present in iCloud.
+1. Open the production app online. Wait for **App ready for offline GGUF**.
+2. Use **Save to Downloads** in the model menu. Ensure the GGUF is downloaded onto the device, not only present in a cloud folder.
 3. Reopen in airplane mode. Choose **Load from a file…** and select the saved GGUF. A File handle cannot survive a restart, so you must select it again each session.
 
 The installed bundle includes every JavaScript chunk, stylesheet and both tokenizer families. The GGUF supplies its own manifest and weight data. File loads check the support files before allocating GPU weights. The 27B tokenizer is now bundled too; this does **not** make its memory requirements suitable for every phone.
 
-Bonsai weights are streamed from Files or the network and are never written to Cache API storage. This preserves the project's workaround for large in-page cache writes on Safari. The app shell and tokenizers **do** use the service worker's Cache API storage. Safari can evict website storage, so check readiness before travelling and retain your GGUF in Files.
+Bonsai weights are streamed from Downloads or the network and are never written to Cache API storage. This preserves the project's workaround for large in-page cache writes. The app shell and tokenizers **do** use the service worker's Cache API storage. Chrome and Android can evict website storage, so check readiness before travelling and retain your GGUF in Downloads.
 
 **Update site** installs a complete replacement before switching over. A failed update keeps the working offline copy. Chat history and model metadata are preserved.
 
@@ -41,12 +60,28 @@ Bonsai weights are streamed from Files or the network and are never written to C
 | Model | Runtime | Use |
 | --- | --- | --- |
 | Qwen 0.5B | WebLLM | Small baseline; separate runtime-managed model cache, not a GGUF file load |
-| Bonsai 1.7B Q1 | bitgpu | Recommended starting point for GGUF on iPhone; roughly 290 MB download |
+| Bonsai 1.7B Q1 | bitgpu | Recommended starting point for GGUF on Android; roughly 290 MB download |
 | Bonsai 4B Q1 | bitgpu | Larger option; roughly 570 MB download |
 | Bonsai 8B Q1 | bitgpu | Experimental; roughly 1.16 GB download |
 | Bonsai 27B Q1 | bitgpu | Desktop-class experiment; roughly 3.8 GB of weights plus runtime memory |
+| Online Assist | Cloud | Explicit remote option; also the automatic fallback without WebGPU |
 
-File loading supports the listed **Bonsai Q1_0 GGUF** releases, with their recognizable Bonsai filenames. It does not support arbitrary GGUF quantizations. Unknown filenames and incompatible architectures produce an error. There is no universally guaranteed iPhone model ceiling: available memory, context allocation, browser version and other apps all matter.
+File loading supports the listed **Bonsai Q1_0 GGUF** releases, with their recognizable Bonsai filenames. It does not support arbitrary GGUF quantizations. Unknown filenames and incompatible architectures produce an error. There is no universally guaranteed Android device ceiling: available memory, context allocation, browser version and other apps all matter.
+
+## Device capability and the Online Assist fallback
+
+Local models need a real WebGPU device. Chrome for Android provides WebGPU from Android 12 (API 31) on supported GPUs; older phones, browsers other than Chrome, and locked-down WebViews may not.
+
+The app checks once at startup, after first paint:
+
+- **WebGPU usable** — nothing changes. Local models are offered exactly as before.
+- **No usable WebGPU** — the local model tiles are disabled, the file-load button is disabled, the app explains why, and Online Assist is selected for you. Nothing is sent anywhere until you tap **Connect** and then **Send**.
+
+A device that *has* WebGPU can still fail to load a particular model (not enough memory for 27B, for example). When a local load fails, the notice offers a **Use Online Assist** button next to the error. It is a suggestion, never an automatic switch, and it never sends anything by itself.
+
+`?nogpu=1` forces the no-GPU path so the fallback can be checked on a capable machine. The automated check in `npm run check` uses it.
+
+The fallback only changes the *client*. It does not create a backend: see **Online Assist** below for the state of the server side.
 
 ## Chat and text attachments
 
@@ -69,7 +104,9 @@ Temperature, battery state, GPU contention and warm caches affect results. These
 
 ## Online Assist
 
-Sending a message in Online Assist sends the active prompt and any attached page excerpt to the configured service. There is no automatic fallback from local inference. Cloud replies currently arrive as a complete response; Stop cancels the browser request, and both client and proxy have timeouts.
+Sending a message in Online Assist sends the active prompt and any attached page excerpt to the configured service. Nothing is sent until you tap **Send**. Cloud replies currently arrive as a complete response; Stop cancels the browser request, and both client and proxy have timeouts.
+
+The proxy is a Firebase Cloud Function (`onlineAssist`) that lives in the shared Firebase project:
 
 ```sh
 firebase functions:secrets:set FREELLM_API_URL
@@ -79,9 +116,13 @@ firebase deploy --only functions,hosting
 
 The generic proxy uses `auto:smart` unless `FREELLM_MODEL` is configured. Keep API credentials in Firebase secrets.
 
+> **Current state of the backend (v0.9.0).** The shared project `pocket-ai-sovereign-aether` is on the Firebase free (Spark) plan and has **no deployed functions**, so `https://pocket-ai-android.web.app/api/online-assist` currently answers `404`. The Android hosting site rewrites that path to the `onlineAssist` function in `us-central1`, so the request works as soon as the function is deployed — no client change is needed. Deploying it requires the Blaze plan, because the function reads `FREELLM_API_URL` and `FREELLM_API_KEY` from Secret Manager. Until then, Online Assist fails with a visible error and the local models are the only working path. See [docs/ANDROID-ACCEPTANCE.md](docs/ANDROID-ACCEPTANCE.md) for the exact command.
+
+This repository deliberately deploys **hosting only**. The push workflow runs `firebase deploy --only hosting:android`, which never touches functions and never touches the `pocket-ai-iphone` site. The function is deployed from the iPhone repository, or manually, by whoever owns the backend.
+
 ### Optional Bonsai 27B online route
 
-Local 27B remains an experiment with a 2K context and q8 KV cache. Weight storage alone is about 3.8 GB; GPU buffer limits and working memory can prevent loading. Runtime memory errors retain their original allocation details. A session load journal reports unfinished loads after a reload or restored tab; it cannot prove that Safari killed the tab or recover a session Safari discarded.
+Local 27B remains an experiment with a 2K context and q8 KV cache. Weight storage alone is about 3.8 GB; GPU buffer limits and working memory can prevent loading. Runtime memory errors retain their original allocation details. A session load journal reports unfinished loads after a reload or restored tab; it cannot prove that Android killed the app or recover a session the system discarded.
 
 After a failed local 27B load, or through **27B online options**, the app offers a consent dialog. Nothing is uploaded automatically. **Check online availability** contacts the app server without chat content. **Use Bonsai 27B online** switches the session; only a subsequent Send submits the question, relevant history and page excerpt. Reopening returns to local 27B. All existing local GGUF features remain usable offline.
 
@@ -97,13 +138,40 @@ The client sends the fixed profile `bonsai-27b`; the server chooses the configur
 npm run check
 ```
 
-The gate checks syntax, prompt budgets, offline installation/failure behavior and the production build. With Chromium installed, it also verifies manifest/icons, cold offline reload, lazy runtime imports, both tokenizer configurations, page attachment persistence, history search, and edit/retry/stop using simulated cloud responses. It never sends a real AI API request or downloads model weights.
+The gate checks syntax, prompt budgets, offline installation/failure behavior and the production build. With Chromium installed, it also verifies manifest/icons, cold offline reload, lazy runtime imports, both tokenizer configurations, page attachment persistence, history search, edit/retry/stop using simulated cloud responses, and the no-WebGPU fallback path (`?nogpu=1`). It never sends a real AI API request or downloads model weights.
 
-The Chromium probe does not establish real iPhone GPU compatibility. Before release, follow [the iPhone acceptance checklist](docs/IPHONE-ACCEPTANCE.md) with actual GGUF files. Production deployment remains `npm run build && firebase deploy`; the Firebase GitHub workflow deploys Hosting on pushes to main, while functions require a separate deployment.
+The Chromium probe does not establish real Android GPU compatibility. Before release, follow [the Android acceptance checklist](docs/ANDROID-ACCEPTANCE.md) with actual GGUF files on real phones. Production deployment is `npm run build && firebase deploy --only hosting:android`; the GitHub workflow does the same on pushes to main, and it never deploys functions.
+
+### Android project layout
+
+| Path | What it is |
+| --- | --- |
+| `src/` | The web app (unchanged engine, plus the capability gate in `src/capability.js`) |
+| `twa/` | The generated Android (Bubblewrap) project and the signed APK |
+| `twa/keystore.jks` | Signing key — **git-ignored**. Back it up; without it the app cannot be updated in place |
+| `twa/keystore.properties` | Signing password — **git-ignored** |
+| `tools/twa-init.mjs` | Regenerates `twa/` from the hosted web manifest |
+| `tools/twa-build.mjs` | Builds and signs the APK |
+| `public/.well-known/assetlinks.json` | Digital Asset Links, pinned to the signing fingerprint |
+
+```sh
+npm run twa:init     # regenerate the Android project (after a manifest change)
+npm run twa:build    # build + sign the APK -> twa/app-release-signed.apk
+```
+
+Changing the signing key means changing `public/.well-known/assetlinks.json` too, then redeploying hosting, otherwise the phone will open the site in a browser tab instead of the installed app.
 
 Tokenizer source and license information is recorded in [THIRD_PARTY.md](THIRD_PARTY.md).
 
 ## Version history
+
+### v0.9.0 — Android port
+
+- Package the app as a Trusted Web Activity (`app.pocketai.android`) and ship a sideloadable signed APK.
+- Add a WebGPU capability gate: phones without a usable GPU device get local models disabled, a plain explanation, and Online Assist selected for them. A failed local load offers the same route.
+- Android wording throughout the app, the user manual and the README; Apple-specific meta tags removed.
+- Host on a dedicated Firebase Hosting site (`pocket-ai-android`); this repository deploys hosting only and never functions.
+- Add a `?nogpu=1` test hook and an automated check for the fallback path.
 
 ### v0.8.2
 
