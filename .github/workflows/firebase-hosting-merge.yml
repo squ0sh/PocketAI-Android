@@ -14,7 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FIREBASE_PROJECT_ID: pocket-ai-sovereign-aether
-      GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/creds/firebase-service-account.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,8 +25,9 @@ jobs:
       - name: Write service account credentials
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_POCKET_AI_SOVEREIGN_AETHER }}
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/creds/firebase-service-account.json
         run: |
-          mkdir -p "$RUNNER_TEMP/creds"
+          mkdir -p "$(dirname "$GOOGLE_APPLICATION_CREDENTIALS")"
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$GOOGLE_APPLICATION_CREDENTIALS"
           node -e '
             const fs = require("fs");
@@ -39,4 +39,6 @@ jobs:
             if (!key.private_key || !key.private_key.includes("BEGIN PRIVATE KEY")) throw new Error("the secret has no usable private key");
           '
       - name: Deploy hosting (pocket-ai-android only)
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/creds/firebase-service-account.json
         run: npx firebase-tools@15.28.2 deploy --only hosting:android --project "$FIREBASE_PROJECT_ID" --non-interactive
