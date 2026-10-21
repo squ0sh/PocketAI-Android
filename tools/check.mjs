@@ -325,6 +325,34 @@ if (!chrome) {
             const hist = await ev("document.querySelectorAll('.history-item').length");
             if (!(hist >= 1)) failures.push("probe: history drawer rendered no rows");
             console.log(`  probe: ${hist} history row(s), ${[...new Set(tiles.split(','))].filter(Boolean).length} model tile(s)`);
+
+            // Android fallback: on a phone without a usable WebGPU device the
+            // app must degrade to Online Assist instead of dead-ending on a
+            // local model. ?nogpu=1 forces that path.
+            await ev("try { localStorage.clear(); } catch {}");
+            await tab("Page.navigate", { url: "http://127.0.0.1:4197/?nogpu=1" });
+            const fellBack = await waitFor(() => ev("document.querySelectorAll('.model-option').length > 0 && !document.querySelector('#capabilityNotice').hidden"), 120, 250);
+            if (!fellBack) {
+              failures.push("fallback: the app did not report a missing GPU with ?nogpu=1");
+            } else {
+              const fallbackState = JSON.parse(await ev(`JSON.stringify({
+                notice: document.querySelector('#capabilityNotice').textContent,
+                selected: document.querySelector('#modelButton').textContent,
+                load: document.querySelector('#loadButton').textContent,
+                status: document.querySelector('#status').textContent,
+                disabled: [...document.querySelectorAll('.model-option')].filter(b => b.disabled).length,
+                total: document.querySelectorAll('.model-option').length,
+                onlineEnabled: [...document.querySelectorAll('.model-option')].some(b => b.textContent.includes('Online Assist') && !b.disabled),
+                fileDisabled: !!document.querySelector('.model-file-load')?.disabled,
+              })`));
+              if (!fallbackState.notice) failures.push("fallback: no explanation was shown for the missing GPU");
+              if (!fallbackState.onlineEnabled) failures.push("fallback: Online Assist was not selectable without a GPU");
+              if (fallbackState.disabled === 0) failures.push("fallback: local models stayed selectable without a GPU");
+              if (!/Online/i.test(fallbackState.selected)) failures.push(`fallback: Online Assist was not selected automatically (${fallbackState.selected})`);
+              if (!/Connect/i.test(fallbackState.load)) failures.push(`fallback: the load button did not switch to the online path (${fallbackState.load})`);
+              if (!fallbackState.fileDisabled) failures.push("fallback: loading a local GGUF file stayed available without a GPU");
+              console.log("  fallback: no-GPU devices select Online Assist, keep local models disabled and explain why");
+            }
           }
           cleanup();
         }

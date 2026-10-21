@@ -38,3 +38,7 @@ input:focus-visible,textarea:focus-visible{outline:2px solid #bcbcff;outline-off
 #modelButton{max-width:44vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:350px){.topbar{gap:6px;padding-left:10px;padding-right:10px}.topbar .brand h1{font-size:17px}#modelButton{max-width:40vw;padding-left:8px;padding-right:8px;font-size:12px}}
 #guideContent h1,#guideContent h2,#guideContent h3{scroll-margin-top:100px}
+.capability-notice{margin:14px auto 0;max-width:520px;padding:10px 12px;border:1px solid #4a3c22;border-radius:12px;background:#241d10;color:#e8ce9f;font-size:13px;line-height:1.5;text-align:left}
+.model-option.unavailable{opacity:.45;cursor:not-allowed}
+.model-file-load.unavailable{opacity:.55;cursor:not-allowed}
+.notice .use-online{margin-left:8px;padding:4px 10px;border:1px solid #4a3c22;border-radius:9px;background:#2a2417;color:#e8ce9f;font-size:12px;cursor:pointer}

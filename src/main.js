@@ -3,6 +3,7 @@ import userManualHtml from "virtual:user-manual";
 import { PERFORMANCE_KEY, JOURNAL_KEY, median, profileFor, configFor, readMeasurements, recordMeasurement, recommendation, measureRuns } from "./performance.js";
 import { SYSTEM_PROMPT, preparePrompt } from "./context.js";
 import { offlineStatus, updateOfflineApp } from "./offline.js";
+import { assessGpu, forcedOff } from "./capability.js";
 
 // Bundled at /tokenizer/* and precached by the service worker, so loading from a
 // local file needs no network at all. Qwen2Tokenizer, byte-identical across the
@@ -24,7 +25,7 @@ const MODELS = [
     id: "Bonsai-1.7B-bitgpu",
     name: "Bonsai 1.7B Q1",
     tier: "1-bit",
-    description: "Recommended starting point for iPhone GGUF · ~290 MB download.",
+    description: "Recommended starting point for Android GGUF · ~290 MB download.",
     runtime: "bitgpu",
     manifestUrl:
       "https://cdn.jsdelivr.net/gh/stfurkan/bitgpu@v0.19.1/models/bonsai-1.7b-gguf/manifest.json",
@@ -234,6 +235,7 @@ let chats = loadChats();
 let active = chats[0].id;
 let connectionRequest = 0;
 let lastHW = null;          // last inspect() result, for honest OOM messaging
+let localSupport = null;    // { supported, reason } from assessGpu()
 
 const $ = (s) => document.querySelector(s);
 
@@ -309,27 +311,53 @@ function matchModelByFile(name) {
 
 function updateWelcome() {
   const online = isOnlineModel();
+  const blocked = !!localSupport && !localSupport.supported;
   refreshConnection();
 
-  welcomeCopy.textContent = online
-    ? "Online Assist sends this chat to your configured AI service for current information."
-    : "Models run directly on the device GPU. Your chat is not sent to an AI API.";
+  const notice = $("#capabilityNotice");
+  if (notice) {
+    notice.hidden = !blocked;
+    notice.textContent = blocked ? localSupport.reason : "";
+  }
+
+  const rec = welcome.querySelector(".recommendation");
+  if (rec) {
+    rec.textContent = blocked
+      ? "Online Assist needs internet. Local models need WebGPU, which is available in Chrome on Android 12 or newer with a supported GPU."
+      : "Start with Bonsai 1.7B for local GGUF use. Bigger models use more memory, battery and time; 8B and 27B are experiments. Device fit varies.";
+  }
+
+  welcomeCopy.textContent = blocked
+    ? "This browser cannot run local models. Online Assist sends this chat to your configured AI service over the internet."
+    : online
+      ? "Online Assist sends this chat to your configured AI service for current information."
+      : "Models run directly on the device GPU. Your chat is not sent to an AI API.";
 
   load.textContent = online
     ? `Connect ${model().name}`
     : "Load Local AI";
 
   if (!engine) {
-    status.textContent = online
-      ? `${model().name} · not connected`
-      : "Local AI · choose a model or GGUF file";
+    status.textContent = blocked
+      ? "Local AI unavailable · Online Assist selected"
+      : online
+        ? `${model().name} · not connected`
+        : "Local AI · choose a model or GGUF file";
   }
 }
 
 function renderModels() {
-  modelList.replaceChildren();
+  modelList.replaceChildren();
 
-  for (const m of MODELS.filter(m => !m.fallbackOnly)) {
+  const blocked = !!localSupport && !localSupport.supported;
+  if (blocked) {
+    const note = document.createElement("p");
+    note.className = "model-note capability-note";
+    note.textContent = `${localSupport.reason} Online Assist is selected.`;
+    modelList.append(note);
+  }
+
+  for (const m of MODELS.filter(m => !m.fallbackOnly)) {
     const b = document.createElement("button");
     b.className =
       "model-option" + (m.id === selected ? " active" : "");
@@ -344,11 +372,22 @@ function renderModels() {
     a.children[0].textContent = m.name;
     a.children[1].textContent = m.description;
 
-    const badge = document.createElement("span");
-    badge.className = "model-option-badge";
-    badge.textContent = m.tier;
+    const badge = document.createElement("span");
+    badge.className = "model-option-badge";
+    badge.textContent = m.tier;
 
-    b.append(a, badge);
+    // Local models need a usable WebGPU device. Online Assist always stays
+    // selectable so the app remains useful on phones without one.
+    const unavailable = blocked && m.runtime !== "online";
+    if (unavailable) {
+      b.disabled = true;
+      b.classList.add("unavailable");
+      b.setAttribute("aria-disabled", "true");
+      badge.textContent = "Unavailable";
+      a.children[1].textContent = `${m.description} · not available in this browser`;
+    }
+
+    b.append(a, badge);
 
 b.onclick = () => {
       if (busy) return notifyUser("Wait for the reply or stop it before switching models.");
@@ -387,12 +426,20 @@ function addFileControls() {
   fileButton.textContent = "Load from a file…";
   fileButton.onclick = window.pickModelFile;
 
+  // A GGUF file still needs the same WebGPU runtime, so don't offer a path
+  // that cannot work.
+  if (localSupport && !localSupport.supported) {
+    fileButton.disabled = true;
+    fileButton.classList.add("unavailable");
+    fileButton.textContent = "Local file loading is unavailable in this browser";
+  }
+
   const saveRow = document.createElement("div");
   saveRow.className = "model-save-row";
 
   const saveLabel = document.createElement("span");
   saveLabel.className = "model-save-label";
-  saveLabel.textContent = "Save to Files:";
+  saveLabel.textContent = "Save to Downloads:";
 
   saveRow.append(saveLabel);
 
@@ -695,7 +742,7 @@ function fmtGB(bytes) {
 // cache: ask for persistent storage, warn if the device looks tight, never block.
 async function storagePreflight(m) {
   if (!m.approxBytes) return;
-  progressText.textContent = `${m.name} downloads about ${fmtMB(m.approxBytes)}. Its memory use is higher than the file size. 27B is a desktop-class experiment; try 1.7B first on iPhone.`;
+  progressText.textContent = `${m.name} downloads about ${fmtMB(m.approxBytes)}. Its memory use is higher than the file size. 27B is a desktop-class experiment; try 1.7B first on a phone.`;
   await new Promise((resolve) => setTimeout(resolve, 1800));
 }
 // Technical wall → one sentence a human can act on.
@@ -732,7 +779,22 @@ function friendlyGenerationError(e) {
  */
 
 async function inspect() {
-  const r = {
+  // Test hook: pretend WebGPU is missing so the Android fallback UI can be
+  // verified on a capable machine.
+  if (forcedOff()) {
+    return {
+      secureContext: true,
+      webgpu: false,
+      adapter: false,
+      device: false,
+      label: "WebGPU",
+      maxBuffer: 0,
+      features: [],
+      limits: {},
+      error: "Local AI was disabled for this test session (?nogpu=1).",
+    };
+  }
+  const r = {
     secureContext: isSecureContext,
     webgpu: !!navigator.gpu,
     adapter: false,
@@ -870,6 +932,9 @@ function makeWebLLMConfig(m, prebuiltAppConfig) {
 async function loadModel() {
   if (busy || load.disabled) return;
   if (engine) return notifyUser("This model is already loaded. Choose a different model from the model menu or load a GGUF file.");
+  if (!isOnlineModel() && localSupport && !localSupport.supported) {
+    return notifyUser("Local models cannot run in this browser. Choose Online Assist from the model menu instead.");
+  }
   const startedAt = performance.now();
   activeLoadAbort?.abort();
   activeLoadAbort = new AbortController();
@@ -913,7 +978,7 @@ async function loadModel() {
       try {
         await Promise.all([cacheFirstJson(m.tokenizerJsonUrl), cacheFirstJson(m.tokenizerConfigUrl), import("bitgpu"), import("bitgpu/chat"), import("bitgpu/gguf")]);
       } catch {
-        throw new Error("Required model support files are missing. Reconnect, update the app, and wait for App ready for offline GGUF before trying again. Your GGUF is kept in Files.");
+        throw new Error("Required model support files are missing. Reconnect, update the app, and wait for App ready for offline GGUF before trying again. Your GGUF is kept in Downloads.");
       }
     }
     if (!isOnlineModel(m)) {
@@ -972,7 +1037,7 @@ async function loadModel() {
           progressText.textContent =
             `Heads-up: ${m.name} has ~${fmtGB(m.approxBytes)} of weights, plus runtime memory` +
             (cap ? ` (device storage-buffer cap ≈ ${cap})` : "") +
-            `. This experiment may exceed your device memory. Try 1.7B first on iPhone.`;
+            `. This experiment may exceed your device memory. Try 1.7B first on a phone.`;
           await new Promise((r) => setTimeout(r, 1800));
         } else {
           progressText.textContent =
@@ -1059,6 +1124,7 @@ if (e === ABORTED || !alive()) return;
       : /memory|buffer|allocation/i.test(reason)
       ? "This model needs more memory than the browser could provide. Choose a smaller model from the model menu. Technical details are below."
       : "The model could not load. Check Offline setup or reselect its saved file, then retry. Technical details are below.");
+    if (!isOnlineModel(m)) offerOnlineFallback();
     cancelLoadButton.hidden = true;
 
 
@@ -1142,11 +1208,11 @@ async function loadOnlineAssist(m, alive) {
 // is exactly what crashes (4B, 546 MiB) or wedges (1.7B, 237 MiB) the tab — while
 // 8B, which was never small enough to cache, loaded fine every time. The body
 // streams straight to the GPU instead. Offline, load from a saved GGUF file:
-// the "Save to Files" chips in the model sheet put the file on the device, and
+// the "Save to Downloads" chips in the model sheet put the file on the device, and
 // that path never touches the Cache API.
 const OFFLINE_WEIGHTS_MSG =
   `You're offline, so the model weights can't be downloaded. ` +
-  `Save the model to Files once (model sheet → "Save to Files"), then load it ` +
+  `Save the model to Downloads once (model sheet → "Save to Downloads"), then load it ` +
   `with "Load from a file…" — that works with no connection at all.`;
 
 async function cachedModelStream(url, signal) {
@@ -1427,7 +1493,7 @@ async function loadBonsaiBitGPU(m, alive = () => true, journalId) {
       const cap = lastHW?.maxBuffer ? ` (this device's storage-buffer cap ≈ ${fmtGB(lastHW.maxBuffer)})` : "";
       throw new Error(
         `This device ran out of GPU memory while loading ${m.name}${cap}. Runtime detail: ${e.message}. ` +
-          `Close other tabs and apps and try again — on a tight iPhone this is often the limit, and Safari may kill the tab first.`
+          `Close other tabs and apps and try again — on a tight phone this is often the limit, and the browser may kill the tab first.`
       );
     }
     if (e instanceof WebGPUUnavailableError) {
@@ -1847,6 +1913,10 @@ renderModels();
 render();
 renderHistory();
 
+// Ask once, after first paint, whether this browser has a usable WebGPU
+// device. Capable phones see no change; the rest switch to Online Assist.
+checkLocalSupport();
+
 // Merge the durable (tab-close-proof) copy of the chats in the background.
 hydrateChatsFromIDB().finally(() => { hydrating = false; render(); });
 
@@ -1927,6 +1997,56 @@ function notifyUser(message) {
   notice.hidden = !message;
 }
 
+// A local model can be too much for a phone that still reports WebGPU. Rather
+// than leaving the user at a dead end, offer the online path in the notice.
+function offerOnlineFallback() {
+  const notice = $("#notice");
+  if (!notice || notice.querySelector(".use-online")) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "use-online";
+  button.textContent = "Use Online Assist";
+  button.onclick = () => {
+    if (busy) return notifyUser("Stop the current operation first.");
+    selected = "online-assist";
+    localStorage.setItem(KEY, selected);
+    if (engine) {
+      location.reload();
+      return;
+    }
+    modelButton.textContent = model().name;
+    updateWelcome();
+    renderModels();
+    render();
+    notifyUser("Online Assist selected. Tap Connect to start.");
+    input.focus();
+  };
+  notice.append(" ", button);
+}
+
+async function checkLocalSupport() {
+  if (localSupport) return localSupport;
+  let h = null;
+  try {
+    h = await inspect();
+  } catch {}
+  if (h) lastHW = h;
+  localSupport = assessGpu(h);
+
+  if (!localSupport.supported) {
+    // Switch in memory only: a later visit in a capable browser should still
+    // honour the model the user saved here.
+    if (!isOnlineModel()) {
+      selected = "online-assist";
+      modelButton.textContent = model().name;
+    }
+    renderModels();
+    updateWelcome();
+    renderRecommendation();
+  }
+  return localSupport;
+}
+
 async function refreshConnection() {
   const request = ++connectionRequest;
   const local = !isOnlineModel();
@@ -1940,7 +2060,7 @@ async function refreshConnection() {
   $("#offlineErrorDetails").hidden = result.ready || result.pending || !result.missing?.length;
   $("#offlineError").textContent = (result.missing || []).join(" · ");
   $("#offlineDetail").textContent = result.ready
-    ? "App, runtime and tokenizers are saved. You still need a compatible GGUF downloaded onto this device in Files."
+    ? "App, runtime and tokenizers are saved. You still need a compatible GGUF downloaded onto this device in Downloads."
     : result.pending ? "Saving app support files… Keep this page open online." : "App support files need attention. Connect to the internet and tap Repair offline setup.";
 }
 
@@ -2028,11 +2148,11 @@ $("#fetchPage").onclick = async () => {
     body += decoder.decode();
     const page = /html/i.test(type) ? pageTextFromHtml(body) : { title: url.hostname, text: body };
     if (page.text.length > 100000) throw new Error("Page exceeds 100,000 characters. Paste the section you want to discuss.");
-    if (!page.text.trim()) throw new Error("This page has no readable text. Copy text from Safari instead.");
+    if (!page.text.trim()) throw new Error("This page has no readable text. Copy text from your browser instead.");
     $("#pageTitle").value = page.title || url.hostname;
     $("#pageText").value = page.text;
     $("#pageError").textContent = "Fetched. Review the text before starting a chat.";
-  } catch (error) { $("#pageError").textContent = error.name === "TypeError" ? "This site blocks browser access or is unreachable. Copy its text from Safari and paste it here." : error.name === "AbortError" ? "The page took too long. Paste its text instead." : error.message; }
+  } catch (error) { $("#pageError").textContent = error.name === "TypeError" ? "This site blocks browser access or is unreachable. Copy its text from your browser and paste it here." : error.name === "AbortError" ? "The page took too long. Paste its text instead." : error.message; }
   finally { clearTimeout(timer); button.disabled = false; }
 };
 $("#attachPage").onclick = () => {
@@ -2059,7 +2179,12 @@ function measurementBase(m = model()) {
 }
 function renderRecommendation() {
   const target = $("#modelRecommendation");
-  if (target) target.textContent = lastHW ? recommendation(readMeasurements(), profileFor(lastHW, navigator.userAgent)) : "Model fit is based on successful loads and replies on this browser. Load a local model to check its GPU profile.";
+  if (!target) return;
+  if (localSupport && !localSupport.supported) {
+    target.textContent = localSupport.reason;
+    return;
+  }
+  target.textContent = lastHW ? recommendation(readMeasurements(), profileFor(lastHW, navigator.userAgent)) : "Model fit is based on successful loads and replies on this browser. Load a local model to check its GPU profile.";
 }
 function readJournal() {
   try { return JSON.parse(sessionStorage.getItem(JOURNAL_KEY)); } catch { return null; }
